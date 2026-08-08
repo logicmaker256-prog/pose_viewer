@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>POSE VIEWER // Character GLB</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #05070c;
+    --panel: #0b0f18;
+    --panel-line: rgba(0,229,255,0.18);
+    --accent: #00e5ff;
+    --accent-dim: #0891a8;
+    --accent2: #ff3d81;
+    --text: #d7e6ee;
+    --muted: #52657a;
+    --ok: #37ffb0;
+  }
+  *{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body{
+    margin:0; padding:0; width:100%; height:100%; overflow:hidden;
+    background: var(--bg); color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    overscroll-behavior: none;
+  }
+  #viewport{ position:fixed; inset:0; touch-action:none; }
+  canvas{ display:block; }
+
+  .hud{ position:fixed; left:0; right:0; z-index:10; pointer-events:none; }
+  .hud > *{ pointer-events:auto; }
+
+  /* ---- Top bar ---- */
+  .topbar{
+    top:0; padding: max(12px, env(safe-area-inset-top)) 14px 10px 14px;
+    display:flex; align-items:center; justify-content:space-between;
+    background: linear-gradient(180deg, rgba(5,7,12,0.9), rgba(5,7,12,0));
+  }
+  .brand{
+    font-family:'Orbitron', sans-serif; font-weight:900; font-size:13px;
+    letter-spacing:0.14em; color: var(--accent);
+    text-shadow: 0 0 12px rgba(0,229,255,0.55);
+  }
+  .brand small{
+    display:block; font-family:'Rajdhani',sans-serif; font-weight:600;
+    letter-spacing:0.08em; color: var(--muted); font-size:10px; margin-top:2px;
+  }
+  .icon-btn{
+    width:38px; height:38px; border-radius:8px;
+    background: rgba(11,15,24,0.85); border:1px solid var(--panel-line);
+    color: var(--accent); display:flex; align-items:center; justify-content:center;
+    font-size:16px; cursor:pointer;
+  }
+  .icon-btn:active{ background: rgba(0,229,255,0.15); }
+  .topbar-actions{ display:flex; gap:8px; }
+
+  /* ---- Loader overlay ---- */
+  #loader-overlay{
+    position:fixed; inset:0; z-index:50;
+    background: radial-gradient(ellipse at 50% 40%, #0b1220 0%, #05070c 70%);
+    display:flex; align-items:center; justify-content:center; flex-direction:column;
+    padding:24px; text-align:center;
+  }
+  .scanline-title{
+    font-family:'Orbitron',sans-serif; font-weight:900; font-size:22px;
+    letter-spacing:0.12em; color:#eafcff;
+    text-shadow: 0 0 18px rgba(0,229,255,0.7), 0 0 2px #fff;
+    margin-bottom:6px;
+  }
+  .scanline-sub{
+    font-size:12px; letter-spacing:0.2em; color: var(--accent-dim);
+    margin-bottom:34px; text-transform:uppercase;
+  }
+  .dropzone{
+    width:min(86vw, 340px); padding:34px 18px;
+    border:1px dashed var(--panel-line); border-radius:14px;
+    background: rgba(0,229,255,0.03);
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+  }
+  .dropzone.drag{ border-color: var(--accent); background: rgba(0,229,255,0.08); }
+  .dz-glyph{ font-size:34px; color: var(--accent); text-shadow:0 0 16px rgba(0,229,255,0.6); }
+  .btn-primary{
+    font-family:'Orbitron',sans-serif; font-weight:700; font-size:12px;
+    letter-spacing:0.1em; color:#031014; background: var(--accent);
+    border:none; padding:13px 26px; border-radius:8px; cursor:pointer;
+    box-shadow: 0 0 20px rgba(0,229,255,0.45);
+  }
+  .btn-primary:active{ transform: scale(0.97); }
+  .dz-hint{ font-size:12px; color: var(--muted); letter-spacing:0.03em; }
+  #file-input{ display:none; }
+  .loader-error{
+    margin-top:16px; font-size:12px; color: var(--accent2); letter-spacing:0.03em;
+    max-width: 320px;
+  }
+  .loader-progress{
+    margin-top:16px; font-size:12px; color: var(--accent); letter-spacing:0.15em;
+  }
+
+  /* ---- Bottom pose panel ---- */
+  .panel{
+    bottom:0; z-index:10;
+    background: linear-gradient(180deg, rgba(11,15,24,0) 0%, rgba(11,15,24,0.94) 18%, rgba(11,15,24,0.97) 100%);
+    padding: 8px 0 max(10px, env(safe-area-inset-bottom)) 0;
+    transition: transform 0.28s ease;
+  }
+  .panel.collapsed{ transform: translateY(calc(100% - 46px)); }
+
+  .panel-handle{
+    display:flex; align-items:center; justify-content:center; gap:10px;
+    padding:8px 14px; cursor:pointer;
+  }
+  .panel-handle .bar{ width:34px; height:4px; border-radius:3px; background: var(--panel-line); }
+  .now-playing{
+    font-family:'Orbitron',sans-serif; font-size:11px; letter-spacing:0.08em;
+    color: var(--accent); text-shadow:0 0 8px rgba(0,229,255,0.5);
+    display:flex; align-items:center; gap:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .now-playing .dot{ width:7px; height:7px; border-radius:50%; background: var(--ok); box-shadow:0 0 8px var(--ok); flex:none; }
+
+  .cat-tabs{
+    display:flex; gap:8px; overflow-x:auto; padding: 4px 14px 10px 14px;
+    scrollbar-width:none;
+  }
+  .cat-tabs::-webkit-scrollbar{ display:none; }
+  .cat-tab{
+    flex:none; font-family:'Orbitron',sans-serif; font-size:10px; letter-spacing:0.09em;
+    padding:7px 12px; border-radius:6px; border:1px solid var(--panel-line);
+    color: var(--muted); background: rgba(255,255,255,0.02); cursor:pointer; white-space:nowrap;
+  }
+  .cat-tab.active{
+    color:#031014; background: var(--accent); border-color: var(--accent);
+    box-shadow: 0 0 12px rgba(0,229,255,0.4);
+  }
+
+  .pose-grid{
+    display:grid; grid-template-columns: repeat(2, 1fr); gap:8px;
+    padding: 0 14px 6px 14px; max-height: 34vh; overflow-y:auto;
+  }
+  .pose-btn{
+    font-family:'Rajdhani',sans-serif; font-weight:700; font-size:13.5px;
+    color: var(--text); background: var(--panel); border:1px solid var(--panel-line);
+    border-radius:8px; padding:12px 10px; text-align:left; cursor:pointer; line-height:1.25;
+    position:relative; letter-spacing:0.01em;
+  }
+  .pose-btn:active{ background: rgba(0,229,255,0.1); }
+  .pose-btn.active{
+    border-color: var(--accent); color:#eafcff;
+    box-shadow: inset 0 0 0 1px var(--accent), 0 0 14px rgba(0,229,255,0.25);
+  }
+  .pose-btn.active::after{
+    content:"▸"; position:absolute; right:10px; top:50%; transform:translateY(-50%);
+    color: var(--accent); font-size:13px;
+  }
+
+  .viewer-tools{
+    position:fixed; right:12px; bottom: 44vh; z-index:10;
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .viewer-tools.panel-open{ bottom: calc(34vh + 128px); }
+
+  #splash-title{ position:absolute; opacity:0; }
+</style>
+</head>
+<body>
+
+<div id="viewport"></div>
+
+<div class="hud topbar">
+  <div class="brand">POSE VIEWER<small>character glb inspector</small></div>
+  <div class="topbar-actions">
+    <div class="icon-btn" id="btn-rotate" title="自動回転">⟳</div>
+    <div class="icon-btn" id="btn-reset" title="カメラリセット">⌖</div>
+    <div class="icon-btn" id="btn-reload" title="別のGLBを読み込む">⇪</div>
+  </div>
+</div>
+
+<div class="viewer-tools" id="viewer-tools"></div>
+
+<div class="hud panel collapsed" id="panel" style="display:none;">
+  <div class="panel-handle" id="panel-handle">
+    <div class="bar"></div>
+    <div class="now-playing"><span class="dot"></span><span id="now-playing-text">-</span></div>
+  </div>
+  <div class="cat-tabs" id="cat-tabs"></div>
+  <div class="pose-grid" id="pose-grid"></div>
+</div>
+
+<div id="loader-overlay">
+  <div class="scanline-title">CHARACTER POSE VIEWER</div>
+  <div class="scanline-sub">GLB Loader // Three.js r128</div>
+  <div class="dropzone" id="dropzone">
+    <div class="dz-glyph">◈</div>
+    <button class="btn-primary" id="btn-browse">GLBファイルを選択</button>
+    <div class="dz-hint">タップして選択、またはここにドロップ</div>
+    <input type="file" id="file-input" accept=".glb,model/gltf-binary">
+  </div>
+  <div class="loader-progress" id="loader-progress"></div>
+  <div class="loader-error" id="loader-error"></div>
+</div>
+
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---------- Three.js scene setup ----------
+  const viewportEl = document.getElementById('viewport');
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x05070c);
+  scene.fog = new THREE.FogExp2(0x05070c, 0.045);
+
+  const camera = new THREE.PerspectiveCamera(42, window.innerWidth/window.innerHeight, 0.05, 100);
+  camera.position.set(2.4, 1.7, 2.9);
+
+  const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  viewportEl.appendChild(renderer.domElement);
+
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.minDistance = 0.8;
+  controls.maxDistance = 8;
+  controls.maxPolarAngle = Math.PI * 0.51;
+  controls.target.set(0, 0.9, 0);
+  controls.autoRotate = false;
+  controls.autoRotateSpeed = 1.6;
+
+  // Lighting: neon key + cool fill + warm rim
+  scene.add(new THREE.HemisphereLight(0x6fd8ff, 0x0a0410, 0.55));
+  const key = new THREE.DirectionalLight(0xffffff, 1.05);
+  key.position.set(2.2, 3.4, 2.0);
+  scene.add(key);
+  const rimCyan = new THREE.DirectionalLight(0x00e5ff, 0.9);
+  rimCyan.position.set(-2.5, 1.6, -2.2);
+  scene.add(rimCyan);
+  const rimMagenta = new THREE.PointLight(0xff3d81, 0.7, 12);
+  rimMagenta.position.set(0, 1.2, -2.6);
+  scene.add(rimMagenta);
+
+  // Floor: neon grid over a dark disc
+  const floorGeo = new THREE.CircleGeometry(6, 48);
+  const floorMat = new THREE.MeshBasicMaterial({ color:0x070a12, transparent:true, opacity:0.9 });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = -Math.PI/2;
+  floor.position.y = 0;
+  scene.add(floor);
+
+  const grid = new THREE.GridHelper(6, 24, 0x00e5ff, 0x123042);
+  grid.material.transparent = true;
+  grid.material.opacity = 0.35;
+  scene.add(grid);
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  const clock = new THREE.Clock();
+  let mixer = null;
+  function animate(){
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    if (mixer) mixer.update(dt);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // ---------- UI refs ----------
+  const loaderOverlay = document.getElementById('loader-overlay');
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('file-input');
+  const btnBrowse = document.getElementById('btn-browse');
+  const loaderError = document.getElementById('loader-error');
+  const loaderProgress = document.getElementById('loader-progress');
+
+  const panel = document.getElementById('panel');
+  const panelHandle = document.getElementById('panel-handle');
+  const nowPlayingText = document.getElementById('now-playing-text');
+  const catTabs = document.getElementById('cat-tabs');
+  const poseGrid = document.getElementById('pose-grid');
+  const viewerTools = document.getElementById('viewer-tools');
+
+  document.getElementById('btn-rotate').addEventListener('click', () => {
+    controls.autoRotate = !controls.autoRotate;
+    document.getElementById('btn-rotate').style.color = controls.autoRotate ? 'var(--ok)' : 'var(--accent)';
+  });
+  document.getElementById('btn-reset').addEventListener('click', () => resetCamera());
+  document.getElementById('btn-reload').addEventListener('click', () => {
+    loaderOverlay.style.display = 'flex';
+    loaderError.textContent = '';
+    loaderProgress.textContent = '';
+  });
+
+  panelHandle.addEventListener('click', () => panel.classList.toggle('collapsed'));
+
+  btnBrowse.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) loadGLBFile(e.target.files[0]);
+  });
+  ['dragenter','dragover'].forEach(evt => dropzone.addEventListener(evt, (e) => {
+    e.preventDefault(); e.stopPropagation(); dropzone.classList.add('drag');
+  }));
+  ['dragleave','drop'].forEach(evt => dropzone.addEventListener(evt, (e) => {
+    e.preventDefault(); e.stopPropagation(); dropzone.classList.remove('drag');
+  }));
+  dropzone.addEventListener('drop', (e) => {
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) loadGLBFile(f);
+  });
+
+  // ---------- Model / animation state ----------
+  let currentModel = null;
+  let currentActions = {}; // name -> AnimationAction
+  let activeAction = null;
+  let modelHeight = 1.7;
+  let fitDistance = 0;
+
+  const CATEGORY_OVERRIDES = { '待機':'スタンス', 'ダメージ':'リアクション', '勝利':'リアクション' };
+  const CATEGORY_ORDER = ['スタンス','移動','大剣攻撃','ジャンプ','魔法','リアクション','その他'];
+
+  function categoryOf(name){
+    if (CATEGORY_OVERRIDES[name]) return CATEGORY_OVERRIDES[name];
+    if (name.includes('・')) return name.split('・')[0];
+    return 'その他';
+  }
+
+  function loadGLBFile(file){
+    loaderError.textContent = '';
+    loaderProgress.textContent = '読み込み中…';
+    const reader = new FileReader();
+    reader.onerror = () => {
+      loaderProgress.textContent = '';
+      loaderError.textContent = 'ファイルの読み取りに失敗しました。もう一度お試しください。';
+    };
+    reader.onload = (ev) => {
+      const arrayBuffer = ev.target.result;
+      const loader = new THREE.GLTFLoader();
+      loader.parse(arrayBuffer, '', (gltf) => {
+        onModelLoaded(gltf);
+      }, (err) => {
+        console.error(err);
+        loaderProgress.textContent = '';
+        loaderError.textContent = '読み込み失敗: 有効なGLBファイルか確認してください。';
+      });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function clearModel(){
+    if (currentModel){
+      scene.remove(currentModel);
+      currentModel.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material){
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          mats.forEach(m => {
+            if (m.map) m.map.dispose();
+            m.dispose();
+          });
+        }
+      });
+    }
+    currentModel = null;
+    currentActions = {};
+    activeAction = null;
+    mixer = null;
+  }
+
+  function onModelLoaded(gltf){
+    clearModel();
+
+    currentModel = gltf.scene;
+    scene.add(currentModel);
+
+    // Frame the model: center on X/Z, sit on floor (y=0), fit camera target/distance.
+    // updateMatrixWorld(true) first, or a skinned/nested model's bounding box can be
+    // measured before its transforms are applied and come out the wrong scale.
+    currentModel.updateMatrixWorld(true);
+    let box = new THREE.Box3().setFromObject(currentModel);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    currentModel.position.x -= center.x;
+    currentModel.position.z -= center.z;
+    currentModel.position.y -= box.min.y;
+    currentModel.updateMatrixWorld(true);
+
+    // Re-measure after recentering so radius/height reflect the final position.
+    box = new THREE.Box3().setFromObject(currentModel);
+    const sphere = new THREE.Sphere();
+    box.getBoundingSphere(sphere);
+    const radius = Math.max(sphere.radius, 0.001);
+
+    modelHeight = Math.max(size.y, 0.001);
+    controls.target.set(0, modelHeight * 0.55, 0);
+
+    // Distance to fit the bounding sphere inside the vertical FOV, independent of
+    // whatever real-world unit scale this particular GLB was exported in.
+    const fovRad = camera.fov * (Math.PI / 180);
+    fitDistance = (radius / Math.sin(fovRad / 2)) * 1.35;
+
+    controls.minDistance = fitDistance * 0.1;
+    controls.maxDistance = fitDistance * 8;
+    camera.near = Math.max(radius / 500, 0.001);
+    camera.far = Math.max(radius * 500, 100);
+    camera.updateProjectionMatrix();
+
+    resetCamera();
+
+    const gridScale = Math.max((radius * 2.4) / 6, 0.05);
+    grid.scale.setScalar(gridScale);
+    floor.scale.setScalar(gridScale);
+
+    // Animations / poses
+    mixer = new THREE.AnimationMixer(currentModel);
+    currentActions = {};
+    (gltf.animations || []).forEach((clip) => {
+      const action = mixer.clipAction(clip);
+      action.setLoop(THREE.LoopOnce);
+      action.clampWhenFinished = true;
+      currentActions[clip.name] = action;
+    });
+
+    buildPoseUI(gltf.animations || []);
+
+    const names = Object.keys(currentActions);
+    if (names.length){
+      const initial = currentActions['待機'] ? '待機' : names[0];
+      playPose(initial, true);
+    } else {
+      nowPlayingText.textContent = '(ポーズなし)';
+    }
+
+    loaderOverlay.style.display = 'none';
+    panel.style.display = 'block';
+    panel.classList.remove('collapsed');
+    viewerTools.classList.add('panel-open');
+  }
+
+  function resetCamera(){
+    const dist = fitDistance || Math.max(modelHeight * 1.7, 2.2);
+    camera.position.set(dist * 0.62, modelHeight * 0.95, dist * 0.78);
+    controls.update();
+  }
+
+  function playPose(name, instant){
+    const next = currentActions[name];
+    if (!next) return;
+    next.reset();
+    next.enabled = true;
+    next.setEffectiveWeight(1);
+
+    if (activeAction && activeAction !== next && !instant){
+      activeAction.fadeOut(0.35);
+      next.fadeIn(0.35).play();
+    } else {
+      Object.values(currentActions).forEach(a => { if (a !== next) a.stop(); });
+      next.play();
+    }
+    activeAction = next;
+    nowPlayingText.textContent = name;
+
+    document.querySelectorAll('.pose-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.name === name);
+    });
+  }
+
+  function buildPoseUI(clips){
+    const buckets = {};
+    clips.forEach(clip => {
+      const cat = categoryOf(clip.name);
+      if (!buckets[cat]) buckets[cat] = [];
+      buckets[cat].push(clip.name);
+    });
+
+    const orderedCats = Object.keys(buckets).sort((a,b) => {
+      const ia = CATEGORY_ORDER.indexOf(a), ib = CATEGORY_ORDER.indexOf(b);
+      if (ia === -1 && ib === -1) return a.localeCompare(b, 'ja');
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+
+    catTabs.innerHTML = '';
+    poseGrid.innerHTML = '';
+
+    let currentCat = orderedCats[0];
+
+    function renderGrid(cat){
+      poseGrid.innerHTML = '';
+      buckets[cat].forEach(name => {
+        const btn = document.createElement('div');
+        btn.className = 'pose-btn';
+        btn.dataset.name = name;
+        btn.textContent = name;
+        btn.addEventListener('click', () => playPose(name, false));
+        poseGrid.appendChild(btn);
+      });
+      if (activeAction){
+        const activeName = Object.keys(currentActions).find(k => currentActions[k] === activeAction);
+        document.querySelectorAll('.pose-btn').forEach(b => b.classList.toggle('active', b.dataset.name === activeName));
+      }
+    }
+
+    orderedCats.forEach(cat => {
+      const tab = document.createElement('div');
+      tab.className = 'cat-tab' + (cat === currentCat ? ' active' : '');
+      tab.textContent = cat;
+      tab.addEventListener('click', () => {
+        currentCat = cat;
+        document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        renderGrid(cat);
+      });
+      catTabs.appendChild(tab);
+    });
+
+    renderGrid(currentCat);
+  }
+
+})();
+</script>
+</body>
+</html>
